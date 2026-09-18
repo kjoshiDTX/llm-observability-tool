@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-obs"
+version = "0.1.0"
+description = "Request-level tracing client for the llm-obs local LLM observability collector"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.setuptools.packages.find]
+include = ["llm_obs*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

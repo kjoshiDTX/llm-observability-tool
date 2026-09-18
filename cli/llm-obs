@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Thin wrapper: runs the Go CLI from source. Prefer `make build` and ./bin/llm-obs.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+exec go run ./collector/cmd/llm-obs "$@"

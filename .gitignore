@@ -1,0 +1,27 @@
+# Go
+bin/
+*.test
+*.out
+coverage.*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.pytest_cache/
+
+# Runtime data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
