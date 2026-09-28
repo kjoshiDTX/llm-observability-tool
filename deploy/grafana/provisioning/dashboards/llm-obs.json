@@ -1,0 +1,120 @@
+{
+  "title": "llm-obs: Local LLM Observability",
+  "uid": "llm-obs-overview",
+  "editable": true,
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": { "from": "now-1h", "to": "now" },
+  "tags": ["llm-obs"],
+  "templating": {
+    "list": [
+      {
+        "name": "runtime",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(llm_obs_model_loaded, runtime)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "model",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(llm_obs_model_loaded{runtime=~\"$runtime\"}, model)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1, "title": "Tokens / sec by model", "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "llm_obs_tokens_per_sec{runtime=~\"$runtime\",model=~\"$model\"}", "legendFormat": "{{runtime}}/{{model}} ({{device}})" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 2, "title": "Host memory used vs total", "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "llm_obs_host_mem_used_mb{runtime=~\"$runtime\"}", "legendFormat": "{{runtime}} used" },
+        { "expr": "llm_obs_host_mem_total_mb{runtime=~\"$runtime\"}", "legendFormat": "{{runtime}} total" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "decmbytes" }, "overrides": [] }
+    },
+    {
+      "id": 3, "title": "Model residency (weights, MB)", "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "llm_obs_model_mem_mb{runtime=~\"$runtime\",model=~\"$model\"}", "legendFormat": "{{model}} total" },
+        { "expr": "llm_obs_model_gpu_mem_mb{runtime=~\"$runtime\",model=~\"$model\"}", "legendFormat": "{{model}} on {{device}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "decmbytes" }, "overrides": [] }
+    },
+    {
+      "id": 4, "title": "KV-cache utilisation %", "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "llm_obs_kv_cache_used_pct{runtime=~\"$runtime\",model=~\"$model\"}", "legendFormat": "{{runtime}}/{{model}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 5, "title": "Requests running / waiting", "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "llm_obs_requests_running{runtime=~\"$runtime\",model=~\"$model\"}", "legendFormat": "{{runtime}}/{{model}} running" },
+        { "expr": "llm_obs_requests_waiting{runtime=~\"$runtime\",model=~\"$model\"}", "legendFormat": "{{runtime}}/{{model}} waiting" }
+      ]
+    },
+    {
+      "id": 6, "title": "Model loaded (1 = resident)", "type": "state-timeline",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "llm_obs_model_loaded{runtime=~\"$runtime\",model=~\"$model\"}", "legendFormat": "{{runtime}}/{{model}} ({{device}})" }
+      ]
+    },
+    {
+      "id": 7, "title": "Trace latency p50/p95/p99 by name", "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(llm_obs_trace_duration_seconds_bucket{runtime=~\"$runtime\",model=~\"$model\"}[5m])) by (le, name))", "legendFormat": "{{name}} p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(llm_obs_trace_duration_seconds_bucket{runtime=~\"$runtime\",model=~\"$model\"}[5m])) by (le, name))", "legendFormat": "{{name}} p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(llm_obs_trace_duration_seconds_bucket{runtime=~\"$runtime\",model=~\"$model\"}[5m])) by (le, name))", "legendFormat": "{{name}} p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 8, "title": "Trace throughput (tok/s, ok vs error rate)", "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "llm_obs_trace_tokens_per_sec{runtime=~\"$runtime\",model=~\"$model\"}", "legendFormat": "{{name}} tok/s" },
+        { "expr": "sum(rate(llm_obs_traces_total{runtime=~\"$runtime\",model=~\"$model\",status=\"error\"}[5m])) by (name)", "legendFormat": "{{name}} errors/s" }
+      ]
+    },
+    {
+      "id": 9, "title": "Collector events (runtime up/down, model load/unload, backend change)", "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(llm_obs_events_total{runtime=~\"$runtime\"}[5m])) by (kind)", "legendFormat": "{{kind}}" }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

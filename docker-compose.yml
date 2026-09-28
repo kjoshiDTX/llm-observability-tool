@@ -1,0 +1,61 @@
+# Optional production-integration stack (Phase 8): the collector plus a
+# Prometheus + pre-provisioned Grafana dashboard, for teams that already run
+# that stack. Nothing here is required to use llm-obs day to day -- the CLI
+# and local SQLite history work standalone (see the top-level README).
+#
+# Ollama/vLLM are intentionally NOT part of this compose file: they are the
+# developer's own local-LLM setup running on the host. The collector reaches
+# them via host.docker.internal, which Docker Desktop (Mac/Windows) provides
+# natively and which the extra_hosts entry below adds on Linux.
+#
+#   docker compose up --build
+#   open http://localhost:3000        # Grafana (anonymous viewer access)
+#   open http://localhost:9090        # Prometheus
+#   curl  http://localhost:8765/health
+
+services:
+  collector:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "8765:8765"
+    environment:
+      LLM_OBS_OLLAMA_URL: ${LLM_OBS_OLLAMA_URL:-http://host.docker.internal:11434}
+      LLM_OBS_VLLM_METRICS_URL: ${LLM_OBS_VLLM_METRICS_URL:-http://host.docker.internal:8000/metrics}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - llm-obs-data:/data
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - collector
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  llm-obs-data:
+  prometheus-data:
+  grafana-data:
