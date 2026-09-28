@@ -182,6 +182,40 @@ func TestNonAvailabilityErrorDoesNotUnloadModels(t *testing.T) {
 	}
 }
 
+// TestRunBlocksWithZeroAdaptersUntilContextCancelled is a regression test for
+// a real bug found running the load-test tool with both runtimes disabled
+// (-ollama ” -vllm ”), a legitimate pure-trace-ingestion configuration:
+// with zero registered adapters, Run's wg.Wait() had nothing to wait for and
+// returned immediately, so the daemon's main() -- which blocks on Run(ctx) to
+// serve until SIGINT/SIGTERM -- shut the whole process down right after
+// starting instead of serving for the process's actual lifetime.
+func TestRunBlocksWithZeroAdaptersUntilContextCancelled(t *testing.T) {
+	c := NewCollector()
+	c.Logger = nil
+	// No adapters registered at all.
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		c.Run(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("Run returned immediately with zero registered adapters; it must block until ctx is cancelled")
+	case <-time.After(150 * time.Millisecond):
+		// expected: still running
+	}
+
+	cancel()
+	select {
+	case <-done:
+		// expected: Run returns promptly after cancellation
+	case <-time.After(time.Second):
+		t.Fatal("Run did not return within 1s of ctx cancellation")
+	}
+}
+
 func TestPollTimeoutBoundsHungAdapter(t *testing.T) {
 	a := &mockAdapter{name: "hung", delay: 10 * time.Second}
 	c := NewCollector()

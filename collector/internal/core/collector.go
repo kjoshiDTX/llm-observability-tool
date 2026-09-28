@@ -93,6 +93,13 @@ func (c *Collector) Run(ctx context.Context) {
 			c.loop(ctx, reg)
 		}(reg)
 	}
+	// Block on ctx directly rather than only on wg.Wait(): with zero adapters
+	// registered (a legitimate configuration -- pure trace-ingestion mode, or
+	// every runtime explicitly disabled) there are no goroutines to wait for,
+	// and wg.Wait() would return immediately, causing a caller that uses Run
+	// as its "block until shutdown" call (main() does) to exit right after
+	// starting instead of serving until SIGINT/SIGTERM.
+	<-ctx.Done()
 	wg.Wait()
 }
 
