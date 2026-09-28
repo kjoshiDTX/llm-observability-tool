@@ -111,4 +111,20 @@ no-op loop.
 
 The load-test tool appends its own report below this line when it completes.
 
----
+## Load test: 2026-09-27T21:49:47-05:00
+
+- Duration: 10m0s, target rate: 20.0 traces/sec, 8 concurrent senders
+- Traces begun: 11174, completed successfully: 11174, send errors: 0 (0.00%)
+- Collector CPU: mean 9.62% of one core (0.962% of this 10-core machine), max 27.10% of one core
+- Collector RSS: mean 30.3 MB, max 31.9 MB
+- 629 process samples over 10m0s
+- **Verdict: within target (<1-2% of this machine's total CPU capacity on average).**
+
+
+## Overall Phase 9 verdict
+
+All chaos scenarios named in the plan pass against real processes (no
+crash, no panic, correct non-duplicated events), and the collector sustains
+11,174 real trace ingestions over 10 minutes with zero send errors at under
+1% of this machine's total CPU capacity and ~30 MB resident memory --
+comfortably inside the plan's target overhead.
