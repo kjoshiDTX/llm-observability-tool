@@ -180,8 +180,17 @@ func (d *Diagnoser) gather(t trace.Trace) Evidence {
 				ev.ConcurrentTraces = append(ev.ConcurrentTraces, TraceRef{ID: o.ID, Name: o.Name, StartTime: o.StartTime, DurationMS: o.DurationMS})
 			}
 		}
-		if hist, err := d.store.Baseline(t.Name, t.Model, t.StartTime, 50); err == nil && len(hist) >= d.T.MinBaseline {
-			ev.Baseline = buildBaseline(t, hist)
+		if hist, err := d.store.Baseline(t.Name, t.Model, t.StartTime, 50); err == nil {
+			if len(hist) >= d.T.MinBaseline {
+				ev.Baseline = buildBaseline(t, hist)
+			}
+			// A model-loaded event stays inside ColdStartWindow for every call
+			// that follows it within that window, not just the first one: on a
+			// small local model, dozens of calls can complete inside 15s of a
+			// single load. Only the call that is actually first after the load
+			// paid its cost, so drop load events a prior completed call has
+			// already superseded.
+			ev.Events = dropSupersededLoadEvents(ev.Events, hist)
 		}
 	}
 	// The stored context already counted in-flight concurrency at ingest;
@@ -380,6 +389,34 @@ func (d *Diagnoser) Evaluate(t trace.Trace, ev Evidence) Diagnosis {
 	}
 	if out.Signals == nil {
 		out.Signals = []Cause{}
+	}
+	return out
+}
+
+// dropSupersededLoadEvents removes EventModelLoaded entries that a prior
+// completed call (from hist, which is already every call before t.StartTime
+// for this name+model) has already run past. hist need not meet MinBaseline:
+// even a single earlier successful call after the load is enough to know the
+// load's cost was not paid by the current one.
+func dropSupersededLoadEvents(events []core.Event, hist []trace.Trace) []core.Event {
+	if len(hist) == 0 {
+		return events
+	}
+	out := events[:0]
+	for _, e := range events {
+		if e.Kind == core.EventModelLoaded {
+			superseded := false
+			for _, h := range hist {
+				if h.StartTime.After(e.Timestamp) {
+					superseded = true
+					break
+				}
+			}
+			if superseded {
+				continue
+			}
+		}
+		out = append(out, e)
 	}
 	return out
 }

@@ -88,6 +88,39 @@ func TestTracesQueryAndTags(t *testing.T) {
 	}
 }
 
+// TestOverlappingTracesExcludesTouchingBoundary is a regression test for a
+// real bug found running the tracer end-to-end against live Ollama: SQLite
+// stores timestamps at millisecond resolution, and fast sequential local
+// calls routinely end call N and start call N+1 within the same millisecond.
+// An inclusive SQL overlap test (start_ms<=? AND end_ms>=?) misreported every
+// such adjacent pair as overlapping, inflating a purely sequential 50-call
+// benchmark to ~98% "concurrent". The query must use strict inequalities.
+func TestOverlappingTracesExcludesTouchingBoundary(t *testing.T) {
+	s := openTest(t)
+	base := time.Now().Add(-time.Minute).Truncate(time.Millisecond)
+	// call A: [base, base+100ms]  call B: [base+100ms, base+200ms] -- touching, not overlapping
+	a := trace.Trace{ID: "a", Name: "n", Model: "m", Runtime: "ollama", StartTime: base, EndTime: base.Add(100 * time.Millisecond), DurationMS: 100}
+	b := trace.Trace{ID: "b", Name: "n", Model: "m", Runtime: "ollama", StartTime: base.Add(100 * time.Millisecond), EndTime: base.Add(200 * time.Millisecond), DurationMS: 100}
+	if err := s.InsertTrace(a); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertTrace(b); err != nil {
+		t.Fatal(err)
+	}
+	// Querying with B's own window (excluding B) must not turn up A, even
+	// though A's end equals B's start to the millisecond.
+	if ov, _ := s.OverlappingTraces("m", b.StartTime, b.EndTime, "b"); len(ov) != 0 {
+		t.Errorf("touching boundary (a ends exactly when b starts) reported as overlap: %+v", ov)
+	}
+	// A call that genuinely overlaps A by 1ms (and ends before B starts, so it
+	// must not also match B) must still be found.
+	c := trace.Trace{ID: "c", Name: "n", Model: "m", Runtime: "ollama", StartTime: base.Add(50 * time.Millisecond), EndTime: base.Add(99 * time.Millisecond), DurationMS: 49}
+	ov, _ := s.OverlappingTraces("m", c.StartTime, c.EndTime, "c")
+	if len(ov) != 1 || ov[0].ID != "a" {
+		t.Errorf("genuine 1ms overlap not detected: %+v", ov)
+	}
+}
+
 func TestEvents(t *testing.T) {
 	s := openTest(t)
 	now := time.Now()

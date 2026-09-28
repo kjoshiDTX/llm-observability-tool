@@ -26,7 +26,10 @@ func (m *memStore) ListTraces(q Query) ([]Trace, error) { return m.traces, nil }
 func (m *memStore) OverlappingTraces(model string, start, end time.Time, ex string) ([]Trace, error) {
 	var out []Trace
 	for _, t := range m.traces {
-		if t.ID != ex && t.Model == model && !t.StartTime.After(end) && !t.EndTime.Before(start) {
+		// Strict bounds: a window that only touches another at its boundary
+		// (end == start) is sequential, not concurrent. See trace.go and
+		// storage/sqlite.go for the real-world reason this matters.
+		if t.ID != ex && t.Model == model && t.StartTime.Before(end) && t.EndTime.After(start) {
 			out = append(out, t)
 		}
 	}
@@ -120,6 +123,46 @@ func TestConcurrencyCountsInflightAndStored(t *testing.T) {
 	got, _ = in.Ingest(context.Background(), Trace{ID: "later", Name: "n", Model: "m", StartTime: now.Add(5 * time.Second), EndTime: now.Add(6 * time.Second)})
 	if got.Context.ConcurrentTraces != 1 { // "inflight" has no end yet and started before, so it still counts
 		t.Errorf("later concurrent = %d, want 1", got.Context.ConcurrentTraces)
+	}
+}
+
+// TestConcurrencyExcludesBackToBackTouchingWindows is a regression test for a
+// real bug found running the tracer against live Ollama: sequential calls in
+// a tight client loop routinely end one call and start the next within the
+// same millisecond (timestamps round to whole milliseconds; a fast local
+// model can respond faster than that). An inclusive overlap test misreported
+// every such pair as "concurrent", inflating contention diagnoses to ~98% on
+// a purely sequential 50-call benchmark. Overlap must be a strict interval
+// test: touching at the boundary is sequential, not concurrent.
+func TestConcurrencyExcludesBackToBackTouchingWindows(t *testing.T) {
+	base := time.Now()
+	st := &memStore{}
+	in := NewIngester(st, nil)
+
+	// Ten calls back-to-back: call i ends exactly when call i+1 starts.
+	for i := 0; i < 10; i++ {
+		start := base.Add(time.Duration(i) * 100 * time.Millisecond)
+		end := start.Add(100 * time.Millisecond) // == next call's start, to the millisecond
+		got, err := in.Ingest(context.Background(), Trace{
+			ID: string(rune('a' + i)), Name: "n", Model: "m", StartTime: start, EndTime: end,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Context.ConcurrentTraces != 0 {
+			t.Errorf("call %d: concurrent = %d, want 0 (calls only touch at the boundary, never overlap)", i, got.Context.ConcurrentTraces)
+		}
+	}
+
+	// A call that genuinely overlaps an existing one (starts 1ms before it
+	// ends) must still be detected.
+	overlapping := Trace{ID: "z", Name: "n", Model: "m", StartTime: base.Add(250 * time.Millisecond), EndTime: base.Add(350 * time.Millisecond)}
+	got, err := in.Ingest(context.Background(), overlapping)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Context.ConcurrentTraces == 0 {
+		t.Error("a call starting before a stored call's end should be detected as concurrent")
 	}
 }
 

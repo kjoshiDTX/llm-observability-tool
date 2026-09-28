@@ -494,6 +494,37 @@ func TestDiagnose_GatherBuildsBaselineOnceEnoughHistory(t *testing.T) {
 	}
 }
 
+// TestDiagnose_ColdStartOnlyAttributedToFirstCallAfterLoad is a regression
+// test for a real false-positive found running the tracer end-to-end against
+// live Ollama: a model loads once, then dozens of calls complete within the
+// 15s cold-start window, and every one of them was being attributed to the
+// same load event (68% of a 50-call benchmark flagged as "cold start").
+// Only the call with no prior completed call since the load should be.
+func TestDiagnose_ColdStartOnlyAttributedToFirstCallAfterLoad(t *testing.T) {
+	loadAt := time.Now().Add(-5 * time.Second)
+	firstCall := trace.Trace{ID: "first", Name: "n", Model: "m", StartTime: loadAt.Add(100 * time.Millisecond), EndTime: loadAt.Add(1200 * time.Millisecond), DurationMS: 1100}
+	laterCall := trace.Trace{ID: "later", Name: "n", Model: "m", StartTime: loadAt.Add(4 * time.Second), EndTime: loadAt.Add(4300 * time.Millisecond), DurationMS: 300}
+
+	events := []core.Event{{Kind: core.EventModelLoaded, Model: "m", Timestamp: loadAt}}
+
+	// The first call: no prior history at all, so nothing supersedes the load.
+	store1 := &fakeDStore{traces: map[string]trace.Trace{firstCall.ID: firstCall}, events: events}
+	d := New(store1, nil)
+	got, _ := d.Diagnose(firstCall.ID)
+	if diag := got.(Diagnosis); !hasKind(diag.Signals, KindColdStart) {
+		t.Errorf("first call after load should be attributed to cold_start: %+v", diag.Signals)
+	}
+
+	// The later call: the first call is now in its history (it started after
+	// the load and before this call), so the load event must be suppressed.
+	store2 := &fakeDStore{traces: map[string]trace.Trace{laterCall.ID: laterCall}, events: events, baseline: []trace.Trace{firstCall}}
+	d2 := New(store2, nil)
+	got2, _ := d2.Diagnose(laterCall.ID)
+	if diag := got2.(Diagnosis); hasKind(diag.Signals, KindColdStart) {
+		t.Errorf("a call superseded by an earlier completed call should not be attributed to cold_start: %+v", diag.Signals)
+	}
+}
+
 func TestDiagnose_GatherMergesOverlappingTracesIntoConcurrency(t *testing.T) {
 	tr := baseTrace()
 	tr.Context.ConcurrentTraces = 0 // ingest-time view saw none

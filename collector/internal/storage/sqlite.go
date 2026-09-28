@@ -336,9 +336,13 @@ func (s *Store) ListTraces(q trace.Query) ([]trace.Trace, error) {
 }
 
 // OverlappingTraces returns stored traces on the same model whose window
-// intersects [start, end], excluding excludeID.
+// strictly intersects (start, end), excluding excludeID. Strict inequalities
+// matter here: at millisecond timestamp resolution, back-to-back sequential
+// calls routinely end and start within the same millisecond (a fast local
+// model can finish in under a millisecond of wall-clock gap), and an
+// inclusive boundary would misreport that as concurrency.
 func (s *Store) OverlappingTraces(model string, start, end time.Time, excludeID string) ([]trace.Trace, error) {
-	rows, err := s.db.Query(`SELECT `+traceCols+` FROM traces WHERE model=? AND id<>? AND start_ms<=? AND end_ms>=? ORDER BY start_ms`,
+	rows, err := s.db.Query(`SELECT `+traceCols+` FROM traces WHERE model=? AND id<>? AND start_ms<? AND end_ms>? ORDER BY start_ms`,
 		model, excludeID, end.UnixMilli(), start.UnixMilli())
 	if err != nil {
 		return nil, err

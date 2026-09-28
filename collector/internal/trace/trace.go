@@ -219,7 +219,10 @@ func (in *Ingester) concurrent(t Trace) int {
 		if id == t.ID || b.Model != t.Model {
 			continue
 		}
-		if !b.StartTime.After(t.EndTime) {
+		// Strict: a begin landing at exactly this trace's end timestamp (a
+		// common occurrence at millisecond resolution for fast, sequential
+		// local calls) is not concurrency.
+		if b.StartTime.Before(t.EndTime) {
 			seen[id] = true
 		}
 	}
