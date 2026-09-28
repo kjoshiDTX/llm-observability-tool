@@ -10,6 +10,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -184,7 +185,7 @@ func get(path string, q url.Values, dst any) error {
 		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(e.Error))
 	}
 	if jsonOut {
-		var buf strings.Builder
+		var buf bytes.Buffer
 		_ = json.Indent(&buf, body, "", "  ")
 		fmt.Fprintln(stdout, buf.String())
 		return errPrinted
